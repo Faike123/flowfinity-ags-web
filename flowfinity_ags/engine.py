@@ -137,8 +137,10 @@ def normalise_dataframe(
                 output["SAMP_REF"] = f"R{ref_no:04d}"
 
             if not output.get("SAMP_ID") or output.get("SAMP_ID", "").strip().lower() == "pending":
-                id_no = pending_counts.get((location, "SAMP_ID"), 0) + 1
-                pending_counts[(location, "SAMP_ID")] = id_no
+                # SAMP_ID must be unique across the whole export, not just per location.
+                id_no = pending_counts.get(("__GLOBAL__", "SAMP_ID"), 0) + 1
+                pending_counts[("__GLOBAL__", "SAMP_ID")] = id_no
+                pending_counts[(location, "SAMP_ID")] = pending_counts.get((location, "SAMP_ID"), 0) + 1
                 output["SAMP_ID"] = f"PENDING_{id_no:04d}"
 
         meaningful_values = [
@@ -464,6 +466,20 @@ def run_from_folder(
                     ),
                 )
             )
+
+    # Make generated/pending SAMP_ID values unique across the whole export.
+    # SAMP_REF can restart by location, but SAMP_ID must be globally unique.
+    global_pending_sample_id = 1
+    for samp_row in group_rows.get("SAMP", []):
+        samp_id = str(samp_row.get("SAMP_ID", "")).strip()
+
+        if (
+            not samp_id
+            or samp_id.upper() == "PENDING"
+            or samp_id.upper().startswith("PENDING_")
+        ):
+            samp_row["SAMP_ID"] = f"PENDING_{global_pending_sample_id:04d}"
+            global_pending_sample_id += 1
 
     ags_text = build_ags_text(group_rows, settings, profile_name, specs)
 
