@@ -332,6 +332,8 @@ def abbr_rows() -> list[list[str]]:
         ["SAMP_TYPE", "B", "Bulk sample", "AGS4", "", ""],
         ["SAMP_TYPE", "D", "Disturbed sample", "AGS4", "", ""],
         ["SAMP_TYPE", "ES", "Environmental sample", "AGS4", "", ""],
+        ["IVAN_TYPE", "19MM", "19 mm hand vane", "AGS4", "", ""],
+        ["IVAN_TYPE", "33MM", "33 mm hand vane", "AGS4", "", ""],
     ]
 
 
