@@ -13,8 +13,8 @@ st.set_page_config(
     layout="wide",
 )
 
-st.title("Flowfinity Dump → AGS Exporter")
-st.caption("Upload ZIP → select detected project → inspect groups/locations/files → export AGS.")
+st.title("Field to AGS")
+st.caption("Upload field data ZIP → select project → inspect datasets and locations → export AGS.")
 
 with st.sidebar:
     st.header("1. AGS export profile")
@@ -60,7 +60,7 @@ base_settings = {
 
 
 uploaded = st.file_uploader(
-    "Upload Flowfinity ZIP",
+    "Upload field data ZIP",
     type=["zip"],
     accept_multiple_files=False,
 )
