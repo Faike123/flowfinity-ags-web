@@ -137,8 +137,9 @@ def normalise_dataframe(
                 output["SAMP_REF"] = f"R{ref_no:04d}"
 
             if not output.get("SAMP_ID") or output.get("SAMP_ID", "").strip().lower() == "pending":
-                output["SAMP_ID"] = "PENDING"
-                pending_counts[(location, "SAMP_ID")] = pending_counts.get((location, "SAMP_ID"), 0) + 1
+                id_no = pending_counts.get((location, "SAMP_ID"), 0) + 1
+                pending_counts[(location, "SAMP_ID")] = id_no
+                output["SAMP_ID"] = f"PENDING_{id_no:04d}"
 
         meaningful_values = [
             output.get(h, "")
@@ -448,7 +449,7 @@ def run_from_folder(
     samp_rows = group_rows.get("SAMP", [])
     if samp_rows:
         generated_refs = sum(1 for row in samp_rows if str(row.get("SAMP_REF", "")).startswith("R"))
-        pending_ids = sum(1 for row in samp_rows if str(row.get("SAMP_ID", "")).upper() == "PENDING")
+        pending_ids = sum(1 for row in samp_rows if str(row.get("SAMP_ID", "")).upper().startswith("PENDING_"))
 
         if generated_refs or pending_ids:
             issues.append(
@@ -459,7 +460,7 @@ def run_from_folder(
                     location="All locations",
                     message=(
                         f"Sample cleanup applied: {generated_refs} generated sample reference(s); "
-                        f"{pending_ids} sample ID(s) left as PENDING"
+                        f"{pending_ids} unique placeholder sample ID(s) created as PENDING_0001 style values"
                     ),
                 )
             )
