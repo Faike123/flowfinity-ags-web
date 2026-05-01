@@ -71,7 +71,7 @@ ABBR_SPEC = DatasetSpec(
 
 LOCA_SPEC = DatasetSpec(
     group="LOCA",
-    filename_patterns=["LOCA", "LOCALocationDetails", "LocationDetails", "LOCATION"],
+    filename_patterns=["_LOCA", "LOCALocationDetails", "LocationDetails", "LOCATION"],
     headings=["LOCA_ID", "LOCA_TYPE", "LOCA_REM", "LOCA_FDEP", "LOCA_STAR"],
     units=["", "", "", "m", "yyyy-mm-dd"],
     types=["ID", "PA", "X", "2DP", "DT"],
@@ -88,7 +88,7 @@ LOCA_SPEC = DatasetSpec(
 
 HDPH_SPEC = DatasetSpec(
     group="HDPH",
-    filename_patterns=["HDPH", "DepthRelatedExploratory"],
+    filename_patterns=["_HDPH", "HDPHDepthRelatedExploratory", "DepthRelatedExploratory"],
     headings=["LOCA_ID", "HDPH_TOP", "HDPH_BASE", "HDPH_TYPE", "HDPH_STAR", "HDPH_EXC", "HDPH_DIML", "HDPH_DIMW"],
     units=["", "m", "m", "", "yyyy-mm-dd", "", "m", "m"],
     types=["ID", "2DP", "2DP", "PA", "DT", "X", "2DP", "2DP"],
@@ -108,7 +108,7 @@ HDPH_SPEC = DatasetSpec(
 
 GEOL_SPEC = DatasetSpec(
     group="GEOL",
-    filename_patterns=["GEOL", "geologicaldescriptions", "Geology"],
+    filename_patterns=["_GEOL", "GEOLgeologicaldescriptions", "geologicaldescriptions", "Geology"],
     headings=["LOCA_ID", "GEOL_TOP", "GEOL_BASE", "GEOL_DESC"],
     units=["", "m", "m", ""],
     types=["ID", "2DP", "2DP", "X"],
@@ -124,7 +124,7 @@ GEOL_SPEC = DatasetSpec(
 
 DETL_SPEC = DatasetSpec(
     group="DETL",
-    filename_patterns=["DETL", "StratumDetailDescriptions", "Detail"],
+    filename_patterns=["_DETL", "DETLStratumDetailDescriptions", "StratumDetailDescriptions", "Detail"],
     headings=["LOCA_ID", "DETL_TOP", "DETL_BASE", "DETL_DESC"],
     units=["", "m", "m", ""],
     types=["ID", "2DP", "2DP", "X"],
@@ -140,7 +140,7 @@ DETL_SPEC = DatasetSpec(
 
 BKFL_SPEC = DatasetSpec(
     group="BKFL",
-    filename_patterns=["BKFL", "Backfill", "Backfiill"],
+    filename_patterns=["_BKFL", "BKFLExploratoryHoleBackfillDetails", "ExploratoryHoleBackfillDetails", "Backfill", "Backfiill"],
     headings=["LOCA_ID", "BKFL_TOP", "BKFL_BASE", "BKFL_DESC"],
     units=["", "m", "m", ""],
     types=["ID", "2DP", "2DP", "X"],
@@ -156,7 +156,7 @@ BKFL_SPEC = DatasetSpec(
 
 SAMP_SPEC = DatasetSpec(
     group="SAMP",
-    filename_patterns=["SAMP", "Samples"],
+    filename_patterns=["_SAMP", "SAMPSamples", "Samples"],
     headings=["LOCA_ID", "SAMP_TOP", "SAMP_REF", "SAMP_TYPE", "SAMP_ID", "SAMP_BASE"],
     units=["", "m", "", "", "", "m"],
     types=["ID", "2DP", "X", "PA", "ID", "2DP"],
@@ -174,7 +174,7 @@ SAMP_SPEC = DatasetSpec(
 
 IPID_SPEC = DatasetSpec(
     group="IPID",
-    filename_patterns=["IPID", "PID", "PhotoIonisationDetector"],
+    filename_patterns=["_IPID", "IPIDPhotoIonisationDetectorResults", "PhotoIonisationDetectorResults", "PID", "PhotoIonisationDetector"],
     headings=["LOCA_ID", "IPID_DPTH", "IPID_TESN", "IPID_DATE", "IPID_RES"],
     units=["", "m", "", "yyyy-mm-dd", "ppmv"],
     types=["ID", "2DP", "X", "DT", "XN"],
@@ -191,7 +191,7 @@ IPID_SPEC = DatasetSpec(
 
 IVAN_SPEC = DatasetSpec(
     group="IVAN",
-    filename_patterns=["IVAN", "HandVane", "Vane"],
+    filename_patterns=["_IVAN", "IVANHandVane", "HandVane", "Vane"],
     headings=["LOCA_ID", "IVAN_DPTH", "IVAN_TESN", "IVAN_TYPE", "IVAN_IVAN", "IVAN_IVAR", "IVAN_DATE"],
     units=["", "m", "", "", "kPa", "kPa", "yyyy-mm-dd"],
     types=["ID", "2DP", "X", "PA", "XN", "XN", "DT"],

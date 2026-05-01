@@ -107,6 +107,50 @@ def clean_by_type(value, ags_type: str, unit: str = "") -> str:
     return clean_ags_text(value)
 
 
+def clean_abbreviation_code(value) -> str:
+    """
+    Convert Flowfinity descriptive picklist values into AGS abbreviation codes.
+
+    Examples:
+        "TP - Trial Pit" -> "TP"
+        "Trial Pit" -> "TP"
+        "BH - Borehole" -> "BH"
+    """
+    text = clean_ags_text(value).strip()
+    if not text:
+        return ""
+
+    upper = text.upper().strip()
+
+    known = {
+        "TP - TRIAL PIT": "TP",
+        "TRIAL PIT": "TP",
+        "TRIAL PIT / TRENCH": "TP",
+        "TRIAL TRENCH": "TP",
+        "BH - BOREHOLE": "BH",
+        "BOREHOLE": "BH",
+        "WS - WINDOW SAMPLE": "WS",
+        "WINDOW SAMPLE": "WS",
+        "SA - SOAKAWAY": "SA",
+        "SOAKAWAY": "SA",
+    }
+
+    if upper in known:
+        return known[upper]
+
+    # Common Flowfinity form: "CODE - Description"
+    if " - " in upper:
+        code = upper.split(" - ", 1)[0].strip()
+        if code:
+            return code
+
+    # Already a compact code.
+    if len(upper) <= 6 and " " not in upper:
+        return upper
+
+    return text
+
+
 def find_input_column(df_columns, aliases: list[str]):
     lookup = {str(c).strip().lower(): c for c in df_columns}
 
@@ -134,25 +178,51 @@ def read_table(path: Path) -> pd.DataFrame:
 
 
 def infer_project_id(path: Path) -> str:
+    """
+    Infer project number from Flowfinity-style paths such as:
+        26761_TP06/26761_TP06_GEOLgeologicaldescriptions.csv
+
+    Uses the first 4-8 digit sequence found in filename or parent folder.
+    """
     text = " ".join([path.stem, path.parent.name])
-    match = re.search(r"\b(\d{4,8})\b", text)
+
+    match = re.search(r"(\d{4,8})", text)
     if match:
         return match.group(1)
+
     return "UNKNOWN_PROJECT"
 
 
 def infer_loca_id(path: Path) -> str:
+    """
+    Infer location ID from Flowfinity-style paths.
+
+    Handles:
+        26761_TP06
+        26761_TP06_GEOLgeologicaldescriptions
+        26761_SA01
+        TP06
+        SA01
+
+    Returns clean location ID, e.g. TP06 or SA01.
+    """
     text = " ".join([path.stem, path.parent.name]).upper()
 
+    # Strong Flowfinity pattern: project_location, e.g. 26761_TP06
+    match = re.search(r"\d{4,8}[\s_\-]+([A-Z]{1,4}[\s_\-]*\d+[A-Z]?)", text)
+    if match:
+        return re.sub(r"[\s_\-]+", "", match.group(1))
+
+    # General location tokens. Avoid \b because underscore is treated as a word character.
     patterns = [
-        r"\b(TP[\s_\-]*\d+[A-Z]?)\b",
-        r"\b(BH[\s_\-]*\d+[A-Z]?)\b",
-        r"\b(WS[\s_\-]*\d+[A-Z]?)\b",
-        r"\b(CP[\s_\-]*\d+[A-Z]?)\b",
-        r"\b(HP[\s_\-]*\d+[A-Z]?)\b",
-        r"\b(SA[\s_\-]*\d+[A-Z]?)\b",
-        r"\b(RC[\s_\-]*\d+[A-Z]?)\b",
-        r"\b(TT[\s_\-]*\d+[A-Z]?)\b",
+        r"(?<![A-Z0-9])(TP[\s_\-]*\d+[A-Z]?)(?![A-Z0-9])",
+        r"(?<![A-Z0-9])(BH[\s_\-]*\d+[A-Z]?)(?![A-Z0-9])",
+        r"(?<![A-Z0-9])(WS[\s_\-]*\d+[A-Z]?)(?![A-Z0-9])",
+        r"(?<![A-Z0-9])(CP[\s_\-]*\d+[A-Z]?)(?![A-Z0-9])",
+        r"(?<![A-Z0-9])(HP[\s_\-]*\d+[A-Z]?)(?![A-Z0-9])",
+        r"(?<![A-Z0-9])(SA[\s_\-]*\d+[A-Z]?)(?![A-Z0-9])",
+        r"(?<![A-Z0-9])(RC[\s_\-]*\d+[A-Z]?)(?![A-Z0-9])",
+        r"(?<![A-Z0-9])(TT[\s_\-]*\d+[A-Z]?)(?![A-Z0-9])",
     ]
 
     for pattern in patterns:
@@ -162,6 +232,10 @@ def infer_loca_id(path: Path) -> str:
 
     parent = path.parent.name.strip()
     if parent and parent not in {".", ""}:
+        # If parent is like 26761_TP06, return TP06.
+        parent_match = re.search(r"\d{4,8}[\s_\-]+([A-Z]{1,4}[\s_\-]*\d+[A-Z]?)", parent.upper())
+        if parent_match:
+            return re.sub(r"[\s_\-]+", "", parent_match.group(1))
         return parent
 
     return path.stem
