@@ -12,6 +12,7 @@ from .models import DatasetSpec, Issue, ProcessResult, SourceFile
 from .profiles import get_profile
 from .utils import (
     clean_ags_text,
+    clean_abbreviation_code,
     clean_by_type,
     find_input_column,
     infer_loca_id,
@@ -46,8 +47,26 @@ def collect_files(root: Path) -> list[Path]:
 
 
 def detect_group_from_filename(path: Path, specs: list[DatasetSpec]) -> DatasetSpec | None:
+    """
+    Detect Flowfinity export group from filename.
+
+    New Flowfinity files commonly use names like:
+        26761_TP06_BKFLExploratoryHoleBackfillDetails.csv
+        26761_TP06_DETLStratumDetailDescriptions.csv
+        26761_TP06_GEOLgeologicaldescriptions.csv
+
+    We prioritise exact AGS-style group tokens such as _BKFL, _DETL,
+    _GEOL, etc. before falling back to descriptive substring matching.
+    """
     name = path.name.lower()
 
+    # Strong match: AGS group token in filename.
+    for spec in specs:
+        token = f"_{spec.group.lower()}"
+        if token in name:
+            return spec
+
+    # Fallback match: descriptive Flowfinity suffix/name.
     for spec in specs:
         for pattern in spec.filename_patterns:
             if pattern.lower() in name:
@@ -70,11 +89,16 @@ def normalise_dataframe(
     project_col = find_input_column(df.columns, spec.aliases.get("PROJ_ID", []))
     loca_col = find_input_column(df.columns, spec.aliases.get("LOCA_ID", []))
 
+    pending_counts: dict[tuple[str, str], int] = {}
+
     for index, source_row in df.iterrows():
         output: dict[str, str] = {}
 
         output["_PROJ_ID"] = clean_ags_text(source_row[project_col]) if project_col is not None else inferred_project
         output["_LOCA_ID"] = clean_ags_text(source_row[loca_col]) if loca_col is not None else inferred_loca
+
+        if not output["_PROJ_ID"]:
+            output["_PROJ_ID"] = inferred_project
 
         if not output["_LOCA_ID"]:
             output["_LOCA_ID"] = inferred_loca
@@ -94,19 +118,27 @@ def normalise_dataframe(
             if heading == "LOCA_ID" and not value:
                 value = output["_LOCA_ID"]
 
+            # AGS pick-list fields must store the abbreviation code, not the
+            # full Flowfinity display label, e.g. "TP - Trial Pit" -> "TP".
+            if heading in {"LOCA_TYPE", "HDPH_TYPE", "SAMP_TYPE", "IVAN_TYPE"}:
+                value = clean_abbreviation_code(value)
+
             output[heading] = value
 
         if spec.group == "SAMP":
-            if not output.get("SAMP_REF"):
-                output["SAMP_REF"] = str(len(rows) + 1)
+            # Do not invent sample identifiers.
+            # If Flowfinity provides SAMP_REF / SAMP_ID, keep them.
+            # If missing, leave blank and flag for review.
+            location = output.get("LOCA_ID") or output.get("_LOCA_ID", "")
 
-            if not output.get("SAMP_ID"):
-                loca = output.get("LOCA_ID") or output["_LOCA_ID"]
-                top = output.get("SAMP_TOP", "")
-                stype = output.get("SAMP_TYPE", "S") or "S"
-                ref = output.get("SAMP_REF", len(rows) + 1)
-                top_token = str(top).replace(".", "")
-                output["SAMP_ID"] = clean_ags_text(f"{loca}{top_token}{stype}{ref}")
+            if not output.get("SAMP_REF"):
+                ref_no = pending_counts.get((location, "SAMP_REF"), 0) + 1
+                pending_counts[(location, "SAMP_REF")] = ref_no
+                output["SAMP_REF"] = f"R{ref_no:04d}"
+
+            if not output.get("SAMP_ID") or output.get("SAMP_ID", "").strip().lower() == "pending":
+                output["SAMP_ID"] = "PENDING"
+                pending_counts[(location, "SAMP_ID")] = pending_counts.get((location, "SAMP_ID"), 0) + 1
 
         meaningful_values = [
             output.get(h, "")
@@ -132,6 +164,20 @@ def normalise_dataframe(
                 )
 
         rows.append(output)
+
+    # Do not create noisy row/location-level warnings for expected sample cleanup.
+    # A package-level summary warning is added later in run_from_folder().
+    if spec.group != "SAMP":
+        for (location, field_name), count in sorted(pending_counts.items()):
+            issues.append(
+                Issue(
+                    severity="warning",
+                    group=spec.group,
+                    file=path.name,
+                    location=location,
+                    message=f"{count} missing/placeholder {field_name} value(s) were normalised during export",
+                )
+            )
 
     return rows
 
@@ -216,7 +262,9 @@ def build_project_row(group_rows: dict[str, list[dict[str, str]]], settings: dic
                 break
 
     project_id = project_id or "UNKNOWN_PROJECT"
-    project_name = project_name or project_id
+    # Do not auto-copy PROJ_ID into PROJ_NAME.
+    # If no project name is provided, leave PROJ_NAME blank.
+    project_name = project_name or ""
 
     return [
         clean_ags_text(project_id),
@@ -366,8 +414,14 @@ def run_from_folder(
             rows = normalise_dataframe(df, spec, path, issues)
             group_rows[spec.group].extend(rows)
 
-            project_id = rows[0].get("_PROJ_ID", infer_project_id(path)) if rows else infer_project_id(path)
-            loca_id = rows[0].get("_LOCA_ID", infer_loca_id(path)) if rows else infer_loca_id(path)
+            project_id = rows[0].get("_PROJ_ID") if rows else ""
+            loca_id = rows[0].get("_LOCA_ID") if rows else ""
+
+            if not project_id:
+                project_id = infer_project_id(path)
+
+            if not loca_id:
+                loca_id = infer_loca_id(path)
 
             source_files.append(
                 SourceFile(
@@ -388,6 +442,25 @@ def run_from_folder(
                     file=path.name,
                     location=infer_loca_id(path),
                     message=str(exc),
+                )
+            )
+
+    samp_rows = group_rows.get("SAMP", [])
+    if samp_rows:
+        generated_refs = sum(1 for row in samp_rows if str(row.get("SAMP_REF", "")).startswith("R"))
+        pending_ids = sum(1 for row in samp_rows if str(row.get("SAMP_ID", "")).upper() == "PENDING")
+
+        if generated_refs or pending_ids:
+            issues.append(
+                Issue(
+                    severity="warning",
+                    group="SAMP",
+                    file="All SAMP files",
+                    location="All locations",
+                    message=(
+                        f"Sample cleanup applied: {generated_refs} generated sample reference(s); "
+                        f"{pending_ids} sample ID(s) left as PENDING"
+                    ),
                 )
             )
 
