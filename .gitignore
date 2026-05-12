@@ -1,9 +1,40 @@
-.venv/
-__pycache__/
-*.pyc
+# macOS
 .DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+.venv/
+venv/
+env/
+ENV/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Streamlit secrets
 .streamlit/secrets.toml
 
-# Python cache
-__pycache__/
-*.pyc
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Logs
+*.log
+
+# Outputs / uploads / generated data
+output/
+outputs/
+exports/
+tmp/
+temp/
+uploads/
+data/uploads/
+
+# IDE
+.vscode/
+.idea/

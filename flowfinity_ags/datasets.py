@@ -72,13 +72,14 @@ ABBR_SPEC = DatasetSpec(
 LOCA_SPEC = DatasetSpec(
     group="LOCA",
     filename_patterns=["_LOCA", "LOCALocationDetails", "LocationDetails", "LOCATION"],
-    headings=["LOCA_ID", "LOCA_TYPE", "LOCA_REM", "LOCA_FDEP", "LOCA_STAR"],
+    headings=["LOCA_ID", "LOCA_TYPE", "LOCA_REM", "LOCA_FDEP", "LOCA_STAR", "LOCA_STAT"],
     units=["", "", "", "m", "yyyy-mm-dd"],
     types=["ID", "PA", "X", "2DP", "DT"],
     aliases={
         "PROJ_ID": COMMON_PROJECT_ALIASES,
         "LOCA_ID": COMMON_LOCATION_ALIASES,
         "LOCA_TYPE": ["LOCA_TYPE", "Location Type", "Exploratory Hole Type", "Type"],
+        "LOCA_STAT": ["LOCA_STAT", "Location Status", "Status", "Draft Status", "Record Status"],
         "LOCA_REM": ["LOCA_REM", "Remarks", "Remark", "Comments", "Notes"],
         "LOCA_FDEP": ["LOCA_FDEP", "Final Depth", "final_depth", "Terminated Pit Depth (m)", "Depth", "Base"],
         "LOCA_STAR": ["LOCA_STAR", "Start Date", "Date", "Date & Time", "Created on", "Submission time"],
@@ -89,7 +90,7 @@ LOCA_SPEC = DatasetSpec(
 HDPH_SPEC = DatasetSpec(
     group="HDPH",
     filename_patterns=["_HDPH", "HDPHDepthRelatedExploratory", "DepthRelatedExploratory"],
-    headings=["LOCA_ID", "HDPH_TOP", "HDPH_BASE", "HDPH_TYPE", "HDPH_STAR", "HDPH_EXC", "HDPH_DIML", "HDPH_DIMW"],
+    headings=["LOCA_ID", "HDPH_TOP", "HDPH_BASE", "HDPH_TYPE", "HDPH_STAR", "HDPH_EXC", "HDPH_DIML", "HDPH_DIMW", "HDPH_ENDD"],
     units=["", "m", "m", "", "yyyy-mm-dd", "", "m", "m"],
     types=["ID", "2DP", "2DP", "PA", "DT", "X", "2DP", "2DP"],
     aliases={
@@ -99,6 +100,7 @@ HDPH_SPEC = DatasetSpec(
         "HDPH_BASE": ["HDPH_BASE", "base_depth", "base", "to", "depth_to", "Terminated Pit Depth (m)"],
         "HDPH_TYPE": ["HDPH_TYPE", "type", "Exploratory Hole Type"],
         "HDPH_STAR": ["HDPH_STAR", "Start Date", "Date", "Date & Time"],
+        "HDPH_ENDD": ["HDPH_ENDD", "End Date", "End Date & Time", "Completed Date", "Completion Date", "Finish Date"],
         "HDPH_EXC": ["HDPH_EXC", "plant used", "Plant Used", "Excavator"],
         "HDPH_DIML": ["HDPH_DIML", "length", "pit_trench_length", "Pit Length", "Trial Pit Length"],
         "HDPH_DIMW": ["HDPH_DIMW", "width", "pit_trench_width", "Pit Width", "Trial Pit Width"],
@@ -141,7 +143,7 @@ DETL_SPEC = DatasetSpec(
 BKFL_SPEC = DatasetSpec(
     group="BKFL",
     filename_patterns=["_BKFL", "BKFLExploratoryHoleBackfillDetails", "ExploratoryHoleBackfillDetails", "Backfill", "Backfiill"],
-    headings=["LOCA_ID", "BKFL_TOP", "BKFL_BASE", "BKFL_DESC"],
+    headings=["LOCA_ID", "BKFL_TOP", "BKFL_BASE", "BKFL_DESC", "BKFL_LEG"],
     units=["", "m", "m", ""],
     types=["ID", "2DP", "2DP", "X"],
     aliases={
@@ -150,6 +152,7 @@ BKFL_SPEC = DatasetSpec(
         "BKFL_TOP": ["BKFL_TOP", "top_depth", "top", "from", "depth_from", "Pit Top Depth (m)"],
         "BKFL_BASE": ["BKFL_BASE", "base_depth", "base", "to", "depth_to", "Terminated Pit Depth (m)"],
         "BKFL_DESC": ["BKFL_DESC", "description", "desc", "Pit Backfiill Details", "Pit Backfill Details"],
+        "BKFL_LEG": ["BKFL_LEG", "Backfill Legend", "Legend", "Backfill Leg", "Pit Backfill Legend"],
     },
     required=["LOCA_ID"],
 )

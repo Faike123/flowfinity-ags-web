@@ -196,6 +196,7 @@ def build_loca_rows(group_rows: dict[str, list[dict[str, str]]], settings: dict)
         by_loca[loca] = {
             "LOCA_ID": loca,
             "LOCA_TYPE": row.get("LOCA_TYPE") or settings.get("default_loca_type", "TP"),
+            "LOCA_STAT": row.get("LOCA_STAT") or settings.get("default_loca_stat", "DRAFT"),
             "LOCA_REM": row.get("LOCA_REM") or settings.get("default_loca_rem", ""),
             "LOCA_FDEP": row.get("LOCA_FDEP", ""),
             "LOCA_STAR": row.get("LOCA_STAR", ""),
@@ -214,6 +215,7 @@ def build_loca_rows(group_rows: dict[str, list[dict[str, str]]], settings: dict)
                 by_loca[loca] = {
                     "LOCA_ID": loca,
                     "LOCA_TYPE": settings.get("default_loca_type", "TP"),
+                    "LOCA_STAT": settings.get("default_loca_stat", "DRAFT"),
                     "LOCA_REM": settings.get("default_loca_rem", ""),
                     "LOCA_FDEP": "",
                     "LOCA_STAR": "",
