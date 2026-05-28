@@ -75,8 +75,8 @@ LOCA_SPEC = DatasetSpec(
     group="LOCA",
     filename_patterns=["_LOCA", "LOCALocationDetails", "LOCAlocationdetails", "LocationDetails", "locationdetails", "LOCATION"],
     headings=["LOCA_ID", "LOCA_TYPE", "LOCA_REM", "LOCA_FDEP", "LOCA_STAR", "LOCA_STAT"],
-    units=["", "", "", "m", "yyyy-mm-dd"],
-    types=["ID", "PA", "X", "2DP", "DT"],
+    units=["", "", "", "m", "yyyy-mm-dd", ""],
+    types=["ID", "PA", "X", "2DP", "DT", "PA"],
     aliases={
         "PROJ_ID": COMMON_PROJECT_ALIASES,
         "LOCA_ID": COMMON_LOCATION_ALIASES,
@@ -180,13 +180,13 @@ CORE_SPEC = DatasetSpec(
 FRAC_SPEC = DatasetSpec(
     group="FRAC",
     filename_patterns=["_FRAC", "FRACFractureSpacing", "FractureSpacing", "Fracture Spacing", "Fractures"],
-    headings=["LOCA_ID", "FRAC_TOP", "FRAC_BASE", "FRAC_NUM", "FRAC_FI"],
+    headings=["LOCA_ID", "FRAC_FROM", "FRAC_TO", "FRAC_NUM", "FRAC_FI"],
     units=["", "m", "m", "", "1/m"],
     types=["ID", "2DP", "2DP", "0DP", "XN"],
     aliases={
         "LOCA_ID": COMMON_LOCATION_ALIASES,
-        "FRAC_TOP": ["FRAC_TOP", "Top Depth (m)", "top_depth", "top", "from", "depth_from"],
-        "FRAC_BASE": ["FRAC_BASE", "Base Depth (m)", "base_depth", "base", "to", "depth_to"],
+        "FRAC_FROM": ["FRAC_FROM", "FRAC_TOP", "Top Depth (m)", "top_depth", "top", "from", "depth_from"],
+        "FRAC_TO": ["FRAC_TO", "FRAC_BASE", "Base Depth (m)", "base_depth", "base", "to", "depth_to"],
         "FRAC_NUM": ["FRAC_NUM", "Number of Fractures", "Fracture Count", "No. Fractures", "No of Fractures"],
         "FRAC_FI": ["FRAC_FI", "FI", "Fracture Index", "Fracture Frequency"],
     },
