@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from flowfinity_ags.engine import DEFAULT_SETTINGS, run_from_zip_bytes
+from flowfinity_ags.gas_engine import run_gas_from_uploaded_sources
 from flowfinity_ags.profiles import AGS_PROFILE_OPTIONS
 
 
@@ -15,7 +16,7 @@ from flowfinity_ags.profiles import AGS_PROFILE_OPTIONS
 # ============================================================
 
 st.set_page_config(
-    page_title="FF to AGS",
+    page_title="AGS Transformer",
     page_icon="🟨",
     layout="wide",
 )
@@ -508,7 +509,7 @@ with st.sidebar:
     st.markdown(
         """
         <div class="brand-block">
-            <div class="brand-logo"><span>✦</span> FF to AGS</div>
+            <div class="brand-logo"><span>✦</span> AGS Transformer</div>
             <div class="brand-subtitle">Field data converter</div>
         </div>
         """,
@@ -516,6 +517,38 @@ with st.sidebar:
     )
 
     st.header("1. Export settings")
+
+    transformer_name = st.selectbox(
+        "Transformer",
+        [
+            "Flowfinity field data to AGS",
+            "Field gas monitoring to AGS",
+        ],
+        index=0,
+        help="Choose which source format to transform into AGS.",
+    )
+
+    selected_transformer = (
+        "ff_to_ags"
+        if transformer_name == "Flowfinity field data to AGS"
+        else "gas_to_ags"
+    )
+
+    st.session_state["selected_transformer"] = selected_transformer
+
+    if st.session_state.get("_last_selected_transformer") != selected_transformer:
+        st.session_state["result"] = None
+        st.session_state["uploaded_source_files"] = []
+        st.session_state["uploaded_zip_bytes"] = None
+        st.session_state["selected_project_id"] = None
+
+    st.session_state["_last_selected_transformer"] = selected_transformer
+
+    st.caption(
+        "The same upload, preview, and export layout will be reused for each transformer."
+    )
+
+    st.divider()
 
     profile_name = st.selectbox(
         "AGS format",
@@ -531,7 +564,7 @@ with st.sidebar:
     st.divider()
 
     st.header("2. Project metadata")
-    st.caption("Optional. Leave blank to use project values detected from the uploaded ZIP.")
+    st.caption("Optional. Leave blank to use project values detected from the uploaded source data.")
 
     sidebar_project_id = st.text_input("Project ID override", value="", help="Optional. Exports to AGS field PROJ_ID")
     sidebar_project_name = st.text_input("Project name", value="", help="Optional. Exports to AGS field PROJ_NAME")
@@ -546,7 +579,7 @@ with st.sidebar:
 
     tran_prod = st.text_input("Produced by", value=DEFAULT_SETTINGS["tran_prod"], help="Exports to AGS field TRAN_PROD")
     tran_stat = st.text_input("Transfer status", value=DEFAULT_SETTINGS["tran_stat"], help="Exports to AGS field TRAN_STAT")
-    tran_desc = st.text_input("Transfer description", value=DEFAULT_SETTINGS["tran_desc"], help="Exports to AGS field TRAN_DESC")
+    tran_desc = st.text_input("Transfer description", value=("Field gas monitoring export" if selected_transformer == "gas_to_ags" else DEFAULT_SETTINGS["tran_desc"]), help="Exports to AGS field TRAN_DESC")
     tran_recv = st.text_input("Received by", value=DEFAULT_SETTINGS["tran_recv"], help="Exports to AGS field TRAN_RECV")
     tran_dlim = st.text_input("Data delimiter", value=DEFAULT_SETTINGS["tran_dlim"], help="Exports to AGS field TRAN_DLIM")
     tran_rcon = st.text_input("Continuation symbol", value=DEFAULT_SETTINGS["tran_rcon"], help="Exports to AGS field TRAN_RCON")
@@ -555,7 +588,7 @@ with st.sidebar:
 
     st.header("4. Location defaults")
 
-    default_loca_type = st.text_input("Default location type", value=DEFAULT_SETTINGS["default_loca_type"], help="Exports to AGS field LOCA_TYPE")
+    default_loca_type = st.text_input("Default location type", value=("BH" if selected_transformer == "gas_to_ags" else DEFAULT_SETTINGS["default_loca_type"]), help="Exports to AGS field LOCA_TYPE")
     default_loca_rem = st.text_input("Default location remark", value=DEFAULT_SETTINGS["default_loca_rem"], help="Exports to AGS field LOCA_REM")
 
     st.markdown(
@@ -585,6 +618,38 @@ base_settings = {
     "default_loca_type": default_loca_type,
     "default_loca_rem": default_loca_rem,
 }
+
+
+
+
+
+
+active_transformer = st.session_state.get("selected_transformer", "ff_to_ags")
+
+if active_transformer == "gas_to_ags":
+    transformer_title = "Field gas monitoring to AGS"
+    transformer_subtitle = (
+        "Upload environmental gas monitoring data, inspect mapped readings, "
+        "and export AGS using the same workflow."
+    )
+    hero_icon = "◌"
+    upload_title = "1. Upload field gas monitoring data"
+    upload_label = "Upload gas monitoring Excel or ZIP"
+    upload_help = "Use an Excel gas monitoring sheet or a ZIP containing multiple gas monitoring sheets."
+    accepted_upload_types = ["zip", "xlsx", "xlsm", "xls"]
+    process_button_label = "Process gas monitoring data"
+else:
+    transformer_title = "Flowfinity field data to AGS"
+    transformer_subtitle = (
+        "Upload Flowfinity field data ZIP, select project, inspect datasets and locations, "
+        "then export AGS."
+    )
+    hero_icon = "⇧"
+    upload_title = "1. Upload Flowfinity field data"
+    upload_label = "Upload Flowfinity ZIP"
+    upload_help = "Use the ZIP export produced by the current Flowfinity workflow."
+    accepted_upload_types = ["zip"]
+    process_button_label = "Process field data"
 
 
 def extract_ags_group_text(ags_text: str, group_name: str) -> str:
@@ -648,13 +713,13 @@ def ags_group_to_dataframe(group_text: str) -> pd.DataFrame:
 # ============================================================
 
 st.markdown(
-    """
+    f"""
     <div class="hero-row">
-        <div class="hero-icon">⇧</div>
+        <div class="hero-icon">{hero_icon}</div>
         <div>
-            <div class="hero-title">Field to AGS</div>
+            <div class="hero-title">{transformer_title}</div>
             <div class="hero-subtitle">
-                Upload field data ZIP → select project → inspect datasets and locations → export AGS.
+                {transformer_subtitle}
             </div>
         </div>
     </div>
@@ -668,16 +733,16 @@ st.markdown(
 # ============================================================
 
 st.markdown('<div class="upload-card">', unsafe_allow_html=True)
-st.markdown('<div class="upload-title">1. Upload field data ZIP</div>', unsafe_allow_html=True)
+st.markdown(f'<div class="upload-title">{upload_title}</div>', unsafe_allow_html=True)
 
 upload_col, tips_col = st.columns([2.3, 1])
 
 with upload_col:
-    uploaded = st.file_uploader(
-        "Drag and drop your ZIP file here",
-        type=["zip"],
-        accept_multiple_files=False,
-        help="Upload one ZIP containing exported field data folders/files.",
+    uploaded_files = st.file_uploader(
+        upload_label,
+        type=accepted_upload_types,
+        accept_multiple_files=True,
+        help=upload_help,
     )
 
 with tips_col:
@@ -685,9 +750,9 @@ with tips_col:
         """
         <div class="tip-box">
             <strong>💡 Tips</strong><br><br>
-            ✓ Include all export folders in the ZIP<br>
+            ✓ Upload one file, multiple files, or a ZIP batch<br>
             ✓ Ensure files are not open or locked<br>
-            ✓ Large files may take a moment to upload
+            ✓ Large batches may take a moment to upload
         </div>
         """,
         unsafe_allow_html=True,
@@ -696,27 +761,75 @@ with tips_col:
 st.markdown("</div>", unsafe_allow_html=True)
 
 
-if uploaded is not None:
-    process_clicked = st.button("Process field data", type="primary")
+
+def normalise_uploaded_files(uploaded_value):
+    if uploaded_value is None:
+        return []
+    if isinstance(uploaded_value, list):
+        return uploaded_value
+    return [uploaded_value]
+
+
+uploaded_file_list = normalise_uploaded_files(uploaded_files)
+
+if uploaded_file_list:
+    process_clicked = st.button(process_button_label, type="primary")
 else:
     process_clicked = False
-    st.info("Upload one ZIP containing the field export folders/files.")
+    st.info("Upload one source file, multiple source files, or a ZIP batch for the selected transformer.")
 
 
 if process_clicked:
-    with st.spinner("Reading field data and detecting projects, locations and groups..."):
-        result = run_from_zip_bytes(
-            uploaded.getvalue(),
-            settings=base_settings,
-            profile_name=profile_name,
-        )
+    uploaded_source_files = [
+        {
+            "name": f.name,
+            "bytes": f.getvalue(),
+        }
+        for f in uploaded_file_list
+    ]
 
-    st.session_state["result"] = result
+    st.session_state["uploaded_source_files"] = uploaded_source_files
     st.session_state["profile_name"] = profile_name
-    st.session_state["uploaded_zip_bytes"] = uploaded.getvalue()
 
+    if active_transformer == "gas_to_ags":
+        with st.spinner("Reading field gas monitoring data and building AGS..."):
+            result = run_gas_from_uploaded_sources(
+                uploaded_source_files,
+                settings=base_settings,
+                profile_name=profile_name,
+            )
+
+        st.session_state["result"] = result
+        st.session_state["uploaded_zip_bytes"] = None
+        st.success(
+            f"Processed {len(uploaded_source_files)} field gas monitoring source file(s)."
+        )
+    else:
+        if len(uploaded_file_list) != 1:
+            st.error("Flowfinity field data currently expects one ZIP batch. Select one ZIP file.")
+            st.stop()
+
+        first_name = uploaded_file_list[0].name.lower()
+        if not first_name.endswith(".zip"):
+            st.error("Flowfinity field data currently expects a ZIP file.")
+            st.stop()
+
+        with st.spinner("Reading field data and detecting projects, locations and groups..."):
+            result = run_from_zip_bytes(
+                uploaded_file_list[0].getvalue(),
+                settings=base_settings,
+                profile_name=profile_name,
+            )
+
+        st.session_state["result"] = result
+        st.session_state["uploaded_zip_bytes"] = uploaded_file_list[0].getvalue()
 
 result = st.session_state.get("result")
+
+if active_transformer == "gas_to_ags" and result is None:
+    st.info("Upload one Excel file, multiple Excel files, or a ZIP batch containing field gas monitoring sheets.")
+    st.stop()
+
 
 
 # ============================================================
@@ -785,7 +898,7 @@ source_file_rows = [
 files_df = pd.DataFrame(source_file_rows)
 
 if files_df.empty:
-    st.error("No supported field data files were detected.")
+    st.error("No supported Flowfinity field data files were detected.")
     st.stop()
 
 project_ids = sorted(files_df["Project"].dropna().astype(str).unique().tolist())
@@ -812,7 +925,19 @@ selected_project = st.selectbox(
 
 project_files_df = files_df[files_df["Project"].astype(str) == str(selected_project)].copy()
 
-project_file_count = len(project_files_df)
+if active_transformer == "gas_to_ags":
+    project_file_count = project_files_df["File"].nunique()
+    imported_file_count = files_df["File"].nunique()
+    file_card_label = "Imports"
+    file_card_caption = "Source files"
+    files_metric_label = "Imports used"
+else:
+    project_file_count = len(project_files_df)
+    imported_file_count = len(files_df)
+    file_card_label = "Files"
+    file_card_caption = "Imported"
+    files_metric_label = "Files used"
+
 project_location_count = project_files_df["Location ID"].nunique()
 project_group_count = project_files_df["Dataset"].nunique()
 project_row_count = int(project_files_df["Rows"].sum())
@@ -856,7 +981,7 @@ st.markdown(
             <div>
                 <div class="summary-label">Files</div>
                 <div class="summary-value">{len(files_df)}</div>
-                <div class="summary-caption">In ZIP</div>
+                <div class="summary-caption">Imported</div>
             </div>
         </div>
     </div>
@@ -896,12 +1021,12 @@ st.markdown("</div>", unsafe_allow_html=True)
 # ============================================================
 
 st.subheader(f"Project review: {selected_project}")
-st.caption("Project metadata is optional. If left unchanged, the app uses the project and location values detected from the uploaded ZIP.")
-st.caption("Project metadata is optional. If left unchanged, the app uses the project and location values detected from the uploaded ZIP.")
+st.caption("Project metadata is optional. If left unchanged, the app uses the project and location values detected from the uploaded source data.")
+st.caption("Project metadata is optional. If left unchanged, the app uses the project and location values detected from the uploaded source data.")
 
 col1, col2, col3, col4, col5, col6 = st.columns(6)
 col1.metric("AGS version", summary["ags_version"])
-col2.metric("Files used", project_file_count)
+col2.metric(files_metric_label, project_file_count)
 col3.metric("Locations", project_location_count)
 col4.metric("Groups", project_group_count)
 col5.metric("Rows", project_row_count)
@@ -965,19 +1090,34 @@ if "selected_project_metadata" in locals():
 rebuild_clicked = st.button("Rebuild AGS with selected project metadata")
 
 if rebuild_clicked:
-    zip_bytes = st.session_state.get("uploaded_zip_bytes")
+    if active_transformer == "gas_to_ags":
+        uploaded_source_files = st.session_state.get("uploaded_source_files", [])
 
-    if zip_bytes:
-        with st.spinner("Rebuilding AGS with selected project metadata..."):
-            result = run_from_zip_bytes(
-                zip_bytes,
-                settings=export_settings,
-                profile_name=profile_name,
-            )
+        if uploaded_source_files:
+            with st.spinner("Rebuilding gas monitoring AGS with selected project metadata..."):
+                result = run_gas_from_uploaded_sources(
+                    uploaded_source_files,
+                    settings=export_settings,
+                    profile_name=profile_name,
+                )
 
-        st.session_state["result"] = result
-        st.success("AGS rebuilt with selected project metadata.")
-        st.rerun()
+            st.session_state["result"] = result
+            st.success("Gas monitoring AGS rebuilt with selected project metadata.")
+            st.rerun()
+    else:
+        zip_bytes = st.session_state.get("uploaded_zip_bytes")
+
+        if zip_bytes:
+            with st.spinner("Rebuilding AGS with selected project metadata..."):
+                result = run_from_zip_bytes(
+                    zip_bytes,
+                    settings=export_settings,
+                    profile_name=profile_name,
+                )
+
+            st.session_state["result"] = result
+            st.success("AGS rebuilt with selected project metadata.")
+            st.rerun()
 
 
 # ============================================================
@@ -1051,7 +1191,7 @@ with tab_locations:
 
 
 with tab_files:
-    st.subheader(f"Source files for project {selected_project}")
+    st.subheader(f"Source files for project {selected_project}" if active_transformer != "gas_to_ags" else f"Source records for project {selected_project}")
 
     st.dataframe(
         project_files_df.sort_values(["Location ID", "Dataset", "File"]),
