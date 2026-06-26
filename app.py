@@ -8,6 +8,7 @@ import streamlit as st
 
 from flowfinity_ags.engine import DEFAULT_SETTINGS, run_from_zip_bytes
 from flowfinity_ags.gas_engine import run_gas_from_uploaded_sources
+from flowfinity_ags.csv_ags_engine import run_csv_ags_from_uploaded_sources
 from flowfinity_ags.profiles import AGS_PROFILE_OPTIONS
 
 
@@ -518,21 +519,26 @@ with st.sidebar:
 
     st.header("1. Export settings")
 
+    transformer_options = [
+        "Flowfinity field data to AGS",
+        "Field gas monitoring to AGS",
+        "CSV / Excel AGS tables to AGS",
+    ]
+
+    transformer_id_by_name = {
+        "Flowfinity field data to AGS": "ff_to_ags",
+        "Field gas monitoring to AGS": "gas_to_ags",
+        "CSV / Excel AGS tables to AGS": "csv_to_ags",
+    }
+
     transformer_name = st.selectbox(
         "Transformer",
-        [
-            "Flowfinity field data to AGS",
-            "Field gas monitoring to AGS",
-        ],
+        transformer_options,
         index=0,
         help="Choose which source format to transform into AGS.",
     )
 
-    selected_transformer = (
-        "ff_to_ags"
-        if transformer_name == "Flowfinity field data to AGS"
-        else "gas_to_ags"
-    )
+    selected_transformer = transformer_id_by_name[transformer_name]
 
     st.session_state["selected_transformer"] = selected_transformer
 
@@ -579,7 +585,7 @@ with st.sidebar:
 
     tran_prod = st.text_input("Produced by", value=DEFAULT_SETTINGS["tran_prod"], help="Exports to AGS field TRAN_PROD")
     tran_stat = st.text_input("Transfer status", value=DEFAULT_SETTINGS["tran_stat"], help="Exports to AGS field TRAN_STAT")
-    tran_desc = st.text_input("Transfer description", value=("Field gas monitoring export" if selected_transformer == "gas_to_ags" else DEFAULT_SETTINGS["tran_desc"]), help="Exports to AGS field TRAN_DESC")
+    tran_desc = st.text_input("Transfer description", value=("Field gas monitoring export" if selected_transformer == "gas_to_ags" else ("CSV / Excel AGS table import" if selected_transformer == "csv_to_ags" else DEFAULT_SETTINGS["tran_desc"])), help="Exports to AGS field TRAN_DESC")
     tran_recv = st.text_input("Received by", value=DEFAULT_SETTINGS["tran_recv"], help="Exports to AGS field TRAN_RECV")
     tran_dlim = st.text_input("Data delimiter", value=DEFAULT_SETTINGS["tran_dlim"], help="Exports to AGS field TRAN_DLIM")
     tran_rcon = st.text_input("Continuation symbol", value=DEFAULT_SETTINGS["tran_rcon"], help="Exports to AGS field TRAN_RCON")
@@ -638,6 +644,18 @@ if active_transformer == "gas_to_ags":
     upload_help = "Use an Excel gas monitoring sheet or a ZIP containing multiple gas monitoring sheets."
     accepted_upload_types = ["zip", "xlsx", "xlsm", "xls"]
     process_button_label = "Process gas monitoring data"
+elif active_transformer == "csv_to_ags":
+    transformer_title = "CSV / Excel AGS tables to AGS"
+    transformer_subtitle = (
+        "Upload CSV files, Excel workbooks, or ZIP batches where each file or sheet "
+        "represents an AGS group, then review and export one AGS file."
+    )
+    hero_icon = "▦"
+    upload_title = "1. Upload CSV / Excel AGS tables"
+    upload_label = "Upload CSV, Excel, or ZIP batch"
+    upload_help = "Use CSV files, Excel workbooks, multiple files, or a ZIP containing CSV / Excel AGS tables."
+    accepted_upload_types = ["zip", "csv", "xlsx", "xlsm"]
+    process_button_label = "Process CSV / Excel AGS tables"
 else:
     transformer_title = "Flowfinity field data to AGS"
     transformer_subtitle = (
@@ -650,6 +668,7 @@ else:
     upload_help = "Use the ZIP export produced by the current Flowfinity workflow."
     accepted_upload_types = ["zip"]
     process_button_label = "Process field data"
+
 
 
 def extract_ags_group_text(ags_text: str, group_name: str) -> str:
@@ -804,6 +823,19 @@ if process_clicked:
         st.success(
             f"Processed {len(uploaded_source_files)} field gas monitoring source file(s)."
         )
+    elif active_transformer == "csv_to_ags":
+        with st.spinner("Reading CSV / Excel AGS tables and building AGS..."):
+            result = run_csv_ags_from_uploaded_sources(
+                uploaded_source_files,
+                settings=base_settings,
+                profile_name=profile_name,
+            )
+
+        st.session_state["result"] = result
+        st.session_state["uploaded_zip_bytes"] = None
+        st.success(
+            f"Processed {len(uploaded_source_files)} CSV / Excel AGS source file(s)."
+        )
     else:
         if len(uploaded_file_list) != 1:
             st.error("Flowfinity field data currently expects one ZIP batch. Select one ZIP file.")
@@ -826,8 +858,11 @@ if process_clicked:
 
 result = st.session_state.get("result")
 
-if active_transformer == "gas_to_ags" and result is None:
-    st.info("Upload one Excel file, multiple Excel files, or a ZIP batch containing field gas monitoring sheets.")
+if active_transformer in {"gas_to_ags", "csv_to_ags"} and result is None:
+    if active_transformer == "csv_to_ags":
+        st.info("Upload one CSV file, multiple CSV / Excel files, or a ZIP batch containing AGS tables.")
+    else:
+        st.info("Upload one Excel file, multiple Excel files, or a ZIP batch containing field gas monitoring sheets.")
     st.stop()
 
 
@@ -1104,6 +1139,20 @@ if rebuild_clicked:
             st.session_state["result"] = result
             st.success("Gas monitoring AGS rebuilt with selected project metadata.")
             st.rerun()
+    elif active_transformer == "csv_to_ags":
+        uploaded_source_files = st.session_state.get("uploaded_source_files", [])
+
+        if uploaded_source_files:
+            with st.spinner("Rebuilding CSV / Excel AGS with selected project metadata..."):
+                result = run_csv_ags_from_uploaded_sources(
+                    uploaded_source_files,
+                    settings=export_settings,
+                    profile_name=profile_name,
+                )
+
+            st.session_state["result"] = result
+            st.success("CSV / Excel AGS rebuilt with selected project metadata.")
+            st.rerun()
     else:
         zip_bytes = st.session_state.get("uploaded_zip_bytes")
 
@@ -1124,12 +1173,18 @@ if rebuild_clicked:
 # TABS
 # ============================================================
 
-tab_datasets, tab_locations, tab_files, tab_issues, tab_group_preview, tab_export = st.tabs(
-    ["Datasets", "Locations", "Source files", "Issues", "Group preview", "Export"]
+review_tabs = ["Datasets", "Locations", "Source files", "Issues", "Group preview", "Export"]
+
+active_review_tab = st.radio(
+    "Review section",
+    review_tabs,
+    horizontal=True,
+    key="active_review_tab",
+    label_visibility="collapsed",
 )
 
 
-with tab_datasets:
+if active_review_tab == "Datasets":
     st.subheader(f"Datasets for project {selected_project}")
 
     group_df = (
@@ -1146,7 +1201,7 @@ with tab_datasets:
     st.dataframe(group_df, use_container_width=True, hide_index=True)
 
 
-with tab_locations:
+if active_review_tab == "Locations":
     st.subheader(f"Locations for project {selected_project}")
 
     location_df = (
@@ -1190,7 +1245,7 @@ with tab_locations:
         st.dataframe(location_group_df, use_container_width=True, hide_index=True)
 
 
-with tab_files:
+if active_review_tab == "Source files":
     st.subheader(f"Source files for project {selected_project}" if active_transformer != "gas_to_ags" else f"Source records for project {selected_project}")
 
     st.dataframe(
@@ -1205,7 +1260,7 @@ with tab_files:
                 st.write(skipped)
 
 
-with tab_issues:
+if active_review_tab == "Issues":
     st.subheader(f"Issues for project {selected_project}")
 
     issue_rows = [
@@ -1237,7 +1292,7 @@ with tab_issues:
 
 
 
-with tab_group_preview:
+if active_review_tab == "Group preview":
     st.subheader("Preview individual AGS group")
 
     preview_groups = [
@@ -1284,7 +1339,7 @@ with tab_group_preview:
         st.warning(f"Group {selected_preview_group} was not found in the AGS export.")
 
 
-with tab_export:
+if active_review_tab == "Export":
     st.subheader("Export AGS")
 
     st.info(
