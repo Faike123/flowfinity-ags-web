@@ -3,8 +3,13 @@ from __future__ import annotations
 import html
 import csv
 import io
+import json
+import re
+import zipfile
+from datetime import datetime
 import pandas as pd
 import streamlit as st
+from openpyxl import Workbook
 
 from flowfinity_ags.engine import DEFAULT_SETTINGS, run_from_zip_bytes
 from flowfinity_ags.gas_engine import run_gas_from_uploaded_sources
@@ -671,6 +676,264 @@ else:
 
 
 
+
+def parse_ags_text_to_group_tables(ags_text: str) -> dict[str, dict]:
+    """
+    Convert AGS text into table payloads so any transformer output can be
+    previewed/exported as normal CSV and JSON tables.
+    """
+    groups: dict[str, dict] = {}
+    current_group = ""
+
+    reader = csv.reader(io.StringIO(ags_text))
+
+    for row in reader:
+        if not row:
+            continue
+
+        control = str(row[0]).strip().upper()
+
+        if control == "GROUP":
+            current_group = str(row[1]).strip() if len(row) > 1 else ""
+
+            if current_group:
+                groups[current_group] = {
+                    "headings": [],
+                    "units": [],
+                    "types": [],
+                    "rows": [],
+                }
+
+            continue
+
+        if not current_group or current_group not in groups:
+            continue
+
+        payload = groups[current_group]
+
+        if control == "HEADING":
+            payload["headings"] = [str(value) for value in row[1:]]
+        elif control == "UNIT":
+            payload["units"] = [str(value) for value in row[1:]]
+        elif control == "TYPE":
+            payload["types"] = [str(value) for value in row[1:]]
+        elif control == "DATA":
+            headings = payload.get("headings", [])
+            values = [str(value) for value in row[1:]]
+
+            if headings:
+                values = pad_export_row(values, len(headings))
+                payload["rows"].append(values)
+
+    return groups
+
+
+def pad_export_row(values: list[str], length: int) -> list[str]:
+    output = list(values)
+
+    while len(output) < length:
+        output.append("")
+
+    return output[:length]
+
+
+def unique_table_fields(headings: list[str]) -> list[str]:
+    seen: dict[str, int] = {}
+    fields: list[str] = []
+
+    for index, heading in enumerate(headings):
+        base = str(heading).strip() or f"FIELD_{index + 1}"
+        count = seen.get(base, 0) + 1
+        seen[base] = count
+
+        if count == 1:
+            fields.append(base)
+        else:
+            fields.append(f"{base}_{count}")
+
+    return fields
+
+
+def ags_group_to_records(table: dict) -> list[dict[str, str]]:
+    headings = table.get("headings", [])
+    fields = unique_table_fields(headings)
+    records: list[dict[str, str]] = []
+
+    for row in table.get("rows", []):
+        padded_row = pad_export_row(row, len(fields))
+        records.append({fields[index]: padded_row[index] for index in range(len(fields))})
+
+    return records
+
+
+def ags_group_to_json_payload(group_name: str, table: dict) -> dict:
+    headings = table.get("headings", [])
+    units = pad_export_row(table.get("units", []), len(headings))
+    types = pad_export_row(table.get("types", []), len(headings))
+
+    return {
+        "group": group_name,
+        "headings": headings,
+        "units": units,
+        "types": types,
+        "row_count": len(table.get("rows", [])),
+        "rows": ags_group_to_records(table),
+    }
+
+
+def ags_group_to_csv_bytes(table: dict) -> bytes:
+    output = io.StringIO()
+    writer = csv.writer(output, lineterminator="\n")
+
+    headings = table.get("headings", [])
+    writer.writerow(headings)
+
+    for row in table.get("rows", []):
+        writer.writerow(pad_export_row(row, len(headings)))
+
+    return output.getvalue().encode("utf-8-sig")
+
+
+def ags_group_to_json_bytes(group_name: str, table: dict) -> bytes:
+    payload = ags_group_to_json_payload(group_name, table)
+    return json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+
+
+def safe_export_name(value: str, fallback: str = "ags_export") -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]+", "_", str(value or "").strip()).strip("_")
+
+    if not cleaned:
+        return fallback
+
+    return cleaned[:80]
+
+
+
+def safe_excel_sheet_name(value: str, used_names: set[str]) -> str:
+    cleaned = re.sub(r"[\[\]\:\*\?\/\\]+", "_", str(value or "").strip())
+    cleaned = re.sub(r"\s+", "_", cleaned).strip("_")
+
+    if not cleaned:
+        cleaned = "GROUP"
+
+    base = cleaned[:31]
+    candidate = base
+    suffix = 2
+
+    while candidate in used_names:
+        suffix_text = f"_{suffix}"
+        candidate = f"{base[:31 - len(suffix_text)]}{suffix_text}"
+        suffix += 1
+
+    used_names.add(candidate)
+    return candidate
+
+
+def build_excel_workbook_bytes(ags_text: str, base_name: str = "ags_tables") -> bytes:
+    groups = parse_ags_text_to_group_tables(ags_text)
+
+    workbook = Workbook()
+    default_sheet = workbook.active
+    workbook.remove(default_sheet)
+
+    manifest_sheet = workbook.create_sheet("manifest")
+    manifest_sheet.append(["package_name", safe_export_name(base_name)])
+    manifest_sheet.append(["group_count", len(groups)])
+    manifest_sheet.append(["created_at", datetime.now().strftime("%Y-%m-%d %H:%M:%S")])
+    manifest_sheet.append([])
+    manifest_sheet.append(["group", "sheet_name", "rows", "fields"])
+
+    used_sheet_names = {"manifest"}
+
+    for group_name, table in groups.items():
+        sheet_name = safe_excel_sheet_name(group_name, used_sheet_names)
+        headings = table.get("headings", [])
+        rows = table.get("rows", [])
+
+        manifest_sheet.append([group_name, sheet_name, len(rows), len(headings)])
+
+        worksheet = workbook.create_sheet(sheet_name)
+        worksheet.append(headings)
+
+        for row in rows:
+            worksheet.append(pad_export_row(row, len(headings)))
+
+        worksheet.freeze_panes = "A2"
+
+        if headings:
+            worksheet.auto_filter.ref = worksheet.dimensions
+
+        for column_cells in worksheet.columns:
+            column_letter = column_cells[0].column_letter
+            max_length = 8
+
+            for cell in column_cells[:200]:
+                value = "" if cell.value is None else str(cell.value)
+                max_length = max(max_length, min(len(value), 40))
+
+            worksheet.column_dimensions[column_letter].width = max_length + 2
+
+    output = io.BytesIO()
+    workbook.save(output)
+    return output.getvalue()
+
+
+def build_table_package_zip(
+    ags_text: str,
+    base_name: str,
+    include_ags: bool = False,
+    include_csv: bool = False,
+    include_json: bool = False,
+    include_excel: bool = False,
+) -> bytes:
+    groups = parse_ags_text_to_group_tables(ags_text)
+    zip_buffer = io.BytesIO()
+    safe_base = safe_export_name(base_name)
+
+    with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        manifest = {
+            "package_name": safe_base,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            "group_count": len(groups),
+            "groups": [
+                {
+                    "group": group_name,
+                    "row_count": len(table.get("rows", [])),
+                    "heading_count": len(table.get("headings", [])),
+                }
+                for group_name, table in groups.items()
+            ],
+            "contains": {
+                "ags": include_ags,
+                "csv": include_csv,
+                "json": include_json,
+                "excel": include_excel,
+            },
+        }
+
+        archive.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
+
+        if include_ags:
+            archive.writestr(f"{safe_base}.ags", ags_text.encode("utf-8"))
+
+        if include_excel:
+            archive.writestr(
+                f"{safe_base}.xlsx",
+                build_excel_workbook_bytes(ags_text, safe_base),
+            )
+
+        for group_name, table in groups.items():
+            safe_group = safe_export_name(group_name, "GROUP")
+
+            if include_csv:
+                archive.writestr(f"csv/{safe_group}.csv", ags_group_to_csv_bytes(table))
+
+            if include_json:
+                archive.writestr(f"json/{safe_group}.json", ags_group_to_json_bytes(group_name, table))
+
+    return zip_buffer.getvalue()
+
+
 def extract_ags_group_text(ags_text: str, group_name: str) -> str:
     """
     Extract one AGS group block from exported AGS text.
@@ -1295,69 +1558,188 @@ if active_review_tab == "Issues":
 if active_review_tab == "Group preview":
     st.subheader("Preview individual AGS group")
 
-    preview_groups = [
-        "PROJ",
-        "TRAN",
-        "UNIT",
-        "TYPE",
-        "ABBR",
-        *all_groups,
-    ]
+    group_tables = parse_ags_text_to_group_tables(result.ags_text)
+    group_names = list(group_tables.keys())
 
-    selected_preview_group = st.selectbox(
-        "Select AGS group to preview",
-        preview_groups,
-        index=0,
-        key="selected_preview_group",
-    )
-
-    selected_group_text = extract_ags_group_text(result.ags_text, selected_preview_group)
-    selected_group_df = ags_group_to_dataframe(selected_group_text)
-
-    col_a, col_b, col_c = st.columns(3)
-    col_a.metric("Selected group", selected_preview_group)
-    col_b.metric("Data rows", len(selected_group_df))
-    col_c.metric("Text lines", len(selected_group_text.splitlines()) if selected_group_text else 0)
-
-    if selected_group_text:
-        st.markdown("### Table preview")
-        if selected_group_df.empty:
-            st.info("This group has no DATA rows or could not be converted to a table.")
-        else:
-            st.dataframe(selected_group_df, use_container_width=True, hide_index=True)
-
-        st.markdown("### AGS text preview")
-        st.code(selected_group_text, language="text")
-
-        st.download_button(
-            label=f"Download {selected_preview_group} group text",
-            data=selected_group_text.encode("utf-8"),
-            file_name=f"{selected_preview_group}.ags.txt",
-            mime="text/plain",
-        )
+    if not group_names:
+        st.info("No AGS groups available to preview.")
     else:
-        st.warning(f"Group {selected_preview_group} was not found in the AGS export.")
+        selected_group_name = st.selectbox(
+            "Select AGS group to preview",
+            group_names,
+            key="selected_group_preview_name",
+        )
+
+        selected_table = group_tables[selected_group_name]
+        selected_headings = selected_table.get("headings", [])
+        selected_rows = selected_table.get("rows", [])
+
+        st.caption("Selected group")
+        st.code(selected_group_name, language="text")
+
+        preview_mode = st.radio(
+            "Preview format",
+            ["AGS", "CSV table", "JSON"],
+            horizontal=True,
+            key="group_preview_format",
+        )
+
+        c1, c2, c3 = st.columns(3)
+        c1.metric("Rows", len(selected_rows))
+        c2.metric("Fields", len(selected_headings))
+        c3.metric("Format", preview_mode)
+
+        if preview_mode == "AGS":
+            group_text = extract_ags_group_text(result.ags_text, selected_group_name)
+            st.text_area(
+                "AGS group text",
+                value=group_text,
+                height=420,
+                key=f"ags_group_text_{selected_group_name}",
+            )
+
+            st.download_button(
+                "Download selected group as AGS text",
+                data=group_text.encode("utf-8"),
+                file_name=f"{safe_export_name(selected_group_name)}.ags.txt",
+                mime="text/plain",
+                key=f"download_group_ags_{selected_group_name}",
+            )
+
+        elif preview_mode == "CSV table":
+            if selected_headings:
+                preview_df = pd.DataFrame(
+                    selected_rows,
+                    columns=unique_table_fields(selected_headings),
+                )
+                st.dataframe(preview_df, use_container_width=True, hide_index=True)
+            else:
+                st.info("This group has no headings to display as a table.")
+
+            st.download_button(
+                "Download selected group CSV",
+                data=ags_group_to_csv_bytes(selected_table),
+                file_name=f"{safe_export_name(selected_group_name)}.csv",
+                mime="text/csv",
+                key=f"download_group_csv_{selected_group_name}",
+            )
+
+        else:
+            st.json(
+                ags_group_to_json_payload(selected_group_name, selected_table),
+                expanded=False,
+            )
+
+            st.download_button(
+                "Download selected group JSON",
+                data=ags_group_to_json_bytes(selected_group_name, selected_table),
+                file_name=f"{safe_export_name(selected_group_name)}.json",
+                mime="application/json",
+                key=f"download_group_json_{selected_group_name}",
+            )
 
 
 if active_review_tab == "Export":
-    st.subheader("Export AGS")
+    st.subheader("Export")
 
-    st.info(
-        "Prototype note: export currently builds one compact AGS from the uploaded package. "
-        "Next engine step is selected-project-only export and official full AGS profiles."
+    export_project_id = (
+        st.session_state.get("selected_project_id")
+        or next(iter(result.project_counts.keys()), "")
+        or "ags_export"
+    )
+    export_base_name = safe_export_name(export_project_id, "ags_export")
+
+    group_tables = parse_ags_text_to_group_tables(result.ags_text)
+
+    st.caption(
+        f"Export package contains {len(group_tables)} AGS group(s). "
+        "CSV and JSON are generated from the same AGS output shown in preview."
     )
 
-    project_token = str(export_settings.get("project_id", selected_project)).strip() or str(selected_project)
-    selected_profile = st.session_state.get("profile_name", profile_name).replace(" ", "_").replace(".", "_")
-    filename = f"{project_token}_{selected_profile}.ags"
+    col_ags, col_csv, col_json, col_excel, col_full = st.columns(5)
 
-    st.download_button(
-        label="Download AGS file",
-        data=result.ags_text.encode("utf-8"),
-        file_name=filename,
-        mime="text/plain",
-        type="primary",
-    )
+    with col_ags:
+        st.download_button(
+            "Download AGS",
+            data=result.ags_text.encode("utf-8"),
+            file_name=f"{export_base_name}.ags",
+            mime="text/plain",
+            use_container_width=True,
+            key="download_full_ags",
+        )
 
-    with st.expander("Preview first 20,000 characters"):
-        st.code(result.ags_text[:20000], language="text")
+    with col_csv:
+        st.download_button(
+            "Download CSV ZIP",
+            data=build_table_package_zip(
+                result.ags_text,
+                f"{export_base_name}_csv_tables",
+                include_csv=True,
+            ),
+            file_name=f"{export_base_name}_csv_tables.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="download_csv_package",
+        )
+
+    with col_json:
+        st.download_button(
+            "Download JSON ZIP",
+            data=build_table_package_zip(
+                result.ags_text,
+                f"{export_base_name}_json_tables",
+                include_json=True,
+            ),
+            file_name=f"{export_base_name}_json_tables.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="download_json_package",
+        )
+
+    with col_excel:
+        st.download_button(
+            "Download Excel",
+            data=build_excel_workbook_bytes(
+                result.ags_text,
+                f"{export_base_name}_tables",
+            ),
+            file_name=f"{export_base_name}_tables.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="download_excel_workbook",
+        )
+
+    with col_full:
+        st.download_button(
+            "Download full package ZIP",
+            data=build_table_package_zip(
+                result.ags_text,
+                f"{export_base_name}_full_package",
+                include_ags=True,
+                include_csv=True,
+                include_json=True,
+                include_excel=True,
+            ),
+            file_name=f"{export_base_name}_full_package.zip",
+            mime="application/zip",
+            use_container_width=True,
+            key="download_full_package",
+        )
+
+    with st.expander("Package structure", expanded=False):
+        st.code(
+            """full_package.zip
+├─ manifest.json
+├─ <project>.ags
+├─ <project>.xlsx
+├─ csv/
+│  ├─ PROJ.csv
+│  ├─ LOCA.csv
+│  └─ ...
+└─ json/
+   ├─ PROJ.json
+   ├─ LOCA.json
+   └─ ...""",
+            language="text",
+        )
+
