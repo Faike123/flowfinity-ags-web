@@ -45,6 +45,7 @@ UNIT_ROWS = [
     ["ppm", "parts per million", ""],
     ["yyyy-mm-dd", "year month day", ""],
     ["yyyy-mm-ddThh:mm", "year month day hours minutes", ""],
+    ["dd/mm/yyyy hh:mm:ss", "day month year hours minutes seconds", ""],
 ]
 
 ABBR_ROWS = [
@@ -52,6 +53,8 @@ ABBR_ROWS = [
     ["DICT_TYPE", "HEADING", "Flag to indicate definition is a HEADING", "", ""],
     ["MOND_TYPE", "BAR", "Barometric pressure at time of monitoring", "", ""],
     ["MOND_TYPE", "FLOW", "Flow", "", ""],
+    ["MOND_TYPE", "GFLOS", "Gas flow steady", "", ""],
+    ["MOND_TYPE", "GFLOP", "Gas flow peak", "", ""],
     ["MOND_TYPE", "GCD", "Carbon dioxide concentration", "", ""],
     ["MOND_TYPE", "GCM", "Carbon monoxide concentration", "", ""],
     ["MOND_TYPE", "GOX", "Oxygen concentration", "", ""],
@@ -103,7 +106,7 @@ GROUP_DEFS = {
     ),
     "MOND": (
         ["LOCA_ID", "MONG_ID", "MONG_DIS", "MOND_DTIM", "MOND_TYPE", "MOND_REF", "MOND_INST", "MOND_RDNG", "MOND_UNIT", "MOND_METH", "MOND_LIM", "MOND_ULIM", "MOND_NAME", "MOND_CRED", "MOND_CONT", "MOND_REM", "FILE_FSET"],
-        ["", "", "m", "yyyy-mm-ddThh:mm", "", "", "", "", "", "", "", "", "", "", "", "", ""],
+        ["", "", "m", "dd/mm/yyyy hh:mm:ss", "", "", "", "", "", "", "", "", "", "", "", "", ""],
         ["ID", "X", "2DP", "DT", "PA", "X", "X", "XN", "PU", "X", "U", "U", "X", "X", "X", "X", "X"],
     ),
     "LOCA": (
@@ -129,20 +132,39 @@ GROUP_DEFS = {
 }
 
 READING_MAP = {
-    "flow steady": ("FLOW", "l/hr"),
-    "steady": ("FLOW", "l/hr"),
-    "flow peak": ("FLOW", "l/hr"),
-    "peak": ("FLOW", "l/hr"),
-    "flow": ("FLOW", "l/hr"),
+    # Flow readings. Keep steady and peak separate.
+    "gas flow steady": ("GFLOS", "l/hr"),
+    "flow steady": ("GFLOS", "l/hr"),
+    "steady flow": ("GFLOS", "l/hr"),
+    "steady": ("GFLOS", "l/hr"),
+    "gflos": ("GFLOS", "l/hr"),
+
+    "gas flow peak": ("GFLOP", "l/hr"),
+    "flow peak": ("GFLOP", "l/hr"),
+    "peak flow": ("GFLOP", "l/hr"),
+    "peak": ("GFLOP", "l/hr"),
+    "gflop": ("GFLOP", "l/hr"),
+
+    # Fallback for generic flow columns.
+    "flow": ("GFLOS", "l/hr"),
+
+    # Pressure / water.
+    "barometric pressure": ("BAR", "mbar"),
+    "atmospheric pressure": ("BAR", "mbar"),
+    "atmospheric": ("BAR", "mbar"),
+    "atm pressure": ("BAR", "mbar"),
+    "bar": ("BAR", "mbar"),
+
     "differential pressure": ("GPRS", "Pa"),
     "diff pressure": ("GPRS", "Pa"),
-    "pressure": ("GPRS", "Pa"),
-    "atmospheric pressure": ("BAR", "mbar"),
-    "barometric pressure": ("BAR", "mbar"),
-    "atmospheric": ("BAR", "mbar"),
+    "gas pressure": ("GPRS", "Pa"),
+    "gprs": ("GPRS", "Pa"),
+
     "water level": ("WDEP", "m"),
     "water depth": ("WDEP", "m"),
     "wdep": ("WDEP", "m"),
+
+    # Gas concentrations.
     "ch4": ("TGM", "%vol"),
     "methane": ("TGM", "%vol"),
     "co2": ("GCD", "%vol"),
@@ -152,8 +174,8 @@ READING_MAP = {
     "h2s": ("HYS", "ppm"),
     "hydrogen sulphide": ("HYS", "ppm"),
     "hydrogen sulfide": ("HYS", "ppm"),
-    "co": ("GCM", "ppm"),
     "carbon monoxide": ("GCM", "ppm"),
+    "co": ("GCM", "ppm"),
     "pid": ("PID", "ppm"),
 }
 
@@ -598,25 +620,29 @@ def is_allowed_time_reference(value: str) -> bool:
 
 
 def format_datetime(value: Any) -> str:
+    """
+    MOND_DTIM target format for this transformer:
+    DD/MM/YYYY hh:mm:ss
+    """
     if isinstance(value, datetime):
-        return value.strftime("%Y-%m-%dT%H:%M")
+        return value.strftime("%d/%m/%Y %H:%M:%S")
 
     raw = clean(value)
 
     if not raw:
         return ""
 
-    match = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})", raw)
+    match = re.match(r"^(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?", raw)
 
     if match:
-        day, month, year, hour, minute = match.groups()
-        return f"{year}-{int(month):02d}-{int(day):02d}T{int(hour):02d}:{int(minute):02d}"
+        day, month, year, hour, minute, second = match.groups()
+        return f"{int(day):02d}/{int(month):02d}/{year} {int(hour):02d}:{int(minute):02d}:{int(second or 0):02d}"
 
-    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})", raw)
+    match = re.match(r"^(\d{4})-(\d{2})-(\d{2})[T ](\d{1,2}):(\d{2})(?::(\d{2}))?", raw)
 
     if match:
-        year, month, day, hour, minute = match.groups()
-        return f"{year}-{month}-{day}T{int(hour):02d}:{minute}"
+        year, month, day, hour, minute, second = match.groups()
+        return f"{int(day):02d}/{int(month):02d}/{year} {int(hour):02d}:{int(minute):02d}:{int(second or 0):02d}"
 
     return ""
 
