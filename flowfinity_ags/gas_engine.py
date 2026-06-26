@@ -5,7 +5,7 @@ import io
 import re
 import zipfile
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, time, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -452,6 +452,8 @@ def parse_section_rows(
         if mapped is not None:
             reading_columns.append((col, mapped[0], mapped[1]))
 
+    base_datetime = find_base_datetime(rows, section, time_col)
+
     for row_index in range(section["start"], section["end"]):
         row = rows[row_index]
 
@@ -463,7 +465,13 @@ def parse_section_rows(
         if ref and not is_allowed_time_reference(ref):
             continue
 
-        date_time = format_datetime(row[time_col]) if time_col is not None and time_col < len(row) else ""
+        raw_date_time = format_datetime(row[time_col]) if time_col is not None and time_col < len(row) else ""
+        ref_seconds = parse_reference_seconds(ref)
+
+        if base_datetime and ref_seconds is not None:
+            date_time = add_seconds_to_datetime_text(base_datetime, ref_seconds)
+        else:
+            date_time = raw_date_time
 
         if not date_time:
             continue
@@ -597,6 +605,7 @@ def row_is_blank(row: tuple[Any, ...]) -> bool:
 
 
 def is_allowed_time_reference(value: str) -> bool:
+    # Keep all valid elapsed-time references, including 30secs.
     ref = normalise(value)
 
     if not ref:
@@ -605,18 +614,61 @@ def is_allowed_time_reference(value: str) -> bool:
     if ref in {"1st", "first", "start", "initial"}:
         return True
 
+    if re.match(r"^(\d+)\s*(sec|secs|second|seconds|min|mins|minute|minutes)$", ref):
+        return True
+
+    return True
+
+
+
+def find_base_datetime(rows: list[tuple[Any, ...]], section: dict[str, Any], time_col: int | None) -> str:
+    if time_col is None:
+        return ""
+
+    for row_index in range(section["start"], section["end"]):
+        row = rows[row_index]
+
+        if time_col >= len(row):
+            continue
+
+        date_time = format_datetime(row[time_col])
+
+        if re.match(r"^\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}$", date_time):
+            return date_time
+
+    return ""
+
+
+def parse_reference_seconds(value: str) -> int | None:
+    ref = normalise(value)
+
+    if not ref:
+        return None
+
+    if ref in {"1st", "first", "start", "initial"}:
+        return 0
+
     match = re.match(r"^(\d+)\s*(sec|secs|second|seconds|min|mins|minute|minutes)$", ref)
 
     if not match:
-        return True
+        return None
 
     amount = int(match.group(1))
     unit = match.group(2)
 
     if unit.startswith("sec"):
-        return amount % 60 == 0
+        return amount
 
-    return True
+    return amount * 60
+
+
+def add_seconds_to_datetime_text(base_datetime: str, seconds: int) -> str:
+    try:
+        parsed = datetime.strptime(base_datetime, "%d/%m/%Y %H:%M:%S")
+    except ValueError:
+        return base_datetime
+
+    return (parsed + timedelta(seconds=seconds)).strftime("%d/%m/%Y %H:%M:%S")
 
 
 def format_datetime(value: Any) -> str:
@@ -626,6 +678,9 @@ def format_datetime(value: Any) -> str:
     """
     if isinstance(value, datetime):
         return value.strftime("%d/%m/%Y %H:%M:%S")
+
+    if isinstance(value, time):
+        return value.strftime("%H:%M:%S")
 
     raw = clean(value)
 
